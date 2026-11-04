@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Yapılacaklar</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
 <style>
   :root {
     --bg: #f4f5f7; --card: #ffffff; --text: #1f2328; --muted: #6b7280;
@@ -16,27 +17,47 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
     font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
     display: flex; justify-content: center; padding: 48px 16px;
   }
   .app { width: 100%; max-width: 700px; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
   h1 { margin: 0 0 4px; font-size: 38px; }
   .sub { color: var(--muted); margin: 0 0 24px; font-size: 18px; }
+  .user { font-size: 16px; color: var(--muted); text-align: right; padding-top: 8px; }
+  .user strong { color: var(--text); }
+  .link { border: none; background: none; color: var(--accent); font-size: 16px; padding: 0; margin-left: 8px; }
+  .link:hover { text-decoration: underline; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
-  form { display: flex; gap: 8px; }
-  input[type=text] {
-    flex: 1; padding: 12px 14px; font-size: 20px; border-radius: 8px;
+  form.row { display: flex; gap: 8px; }
+  input[type=text], input[type=password] {
+    flex: 1; width: 100%; padding: 12px 14px; font-size: 20px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none;
   }
-  input[type=text]:focus { border-color: var(--accent); }
+  input:focus { border-color: var(--accent); }
   button { font: inherit; cursor: pointer; }
   .add {
     padding: 12px 20px; border: none; border-radius: 8px; font-size: 20px;
     background: var(--accent); color: #fff; font-weight: 600;
   }
   .add:hover { background: var(--accent-hover); }
+  .add:disabled { opacity: .6; cursor: default; }
+
+  /* Giriş ekranı */
+  .auth { max-width: 420px; margin: 0 auto; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 16px; }
+  .tabs button {
+    flex: 1; padding: 10px; border-radius: 8px; border: 1px solid transparent;
+    background: none; color: var(--muted); font-size: 18px;
+  }
+  .tabs button.active { border-color: var(--border); background: var(--bg); color: var(--text); font-weight: 600; }
+  .auth form { display: flex; flex-direction: column; gap: 12px; }
+  .auth label { font-size: 16px; color: var(--muted); display: flex; flex-direction: column; gap: 6px; }
+  .auth .add { width: 100%; margin-top: 4px; }
+
   .filters { display: flex; gap: 4px; margin: 16px 0 8px; }
   .filters button {
     border: 1px solid transparent; background: none; color: var(--muted);
@@ -54,7 +75,7 @@
   li.done .text { text-decoration: line-through; color: var(--muted); }
   li .edit { flex: 1; padding: 4px 8px; font-size: 20px; }
   li .del {
-    border: none; background: none; color: var(--muted); font-size: 18px;
+    border: none; background: none; color: var(--muted);
     opacity: 0; padding: 0 6px; line-height: 1; font-size: 24px;
   }
   li:hover .del, li .del:focus { opacity: 1; }
@@ -72,37 +93,78 @@
 </head>
 <body>
 <div class="app">
-  <h1>Yapılacaklar</h1>
-  <p class="sub" id="date"></p>
-  <div class="card">
-    <form id="form">
-      <input type="text" id="input" placeholder="Yeni görev ekle..." autocomplete="off" autofocus>
-      <button class="add" type="submit">Ekle</button>
-    </form>
-    <div class="filters">
-      <button data-f="all" class="active">Tümü</button>
-      <button data-f="active">Aktif</button>
-      <button data-f="done">Tamamlanan</button>
+  <div class="top">
+    <div>
+      <h1>Yapılacaklar</h1>
+      <p class="sub" id="date"></p>
     </div>
-    <div class="error" id="error" hidden></div>
-    <ul id="list"></ul>
-    <div class="footer">
-      <span id="count"></span>
-      <button id="clear">Tamamlananları sil</button>
+    <div class="user" id="userBox" hidden>
+      <strong id="userName"></strong>
+      <button class="link" id="logout">Çıkış yap</button>
     </div>
   </div>
-  <p class="hint">Düzenlemek için göreve çift tıkla. Veriler Supabase'de saklanır.</p>
+
+  <!-- Giriş / kayıt -->
+  <div id="authView" hidden>
+    <div class="card auth">
+      <div class="tabs">
+        <button type="button" data-mode="login" class="active">Giriş yap</button>
+        <button type="button" data-mode="signup">Kayıt ol</button>
+      </div>
+      <form id="authForm">
+        <label>Kullanıcı adı
+          <input type="text" id="username" autocomplete="username" required>
+        </label>
+        <label>Şifre
+          <input type="password" id="password" autocomplete="current-password" required minlength="6">
+        </label>
+        <label id="password2Wrap" hidden>Şifre (tekrar)
+          <input type="password" id="password2" autocomplete="new-password" minlength="6">
+        </label>
+        <div class="error" id="authError" hidden></div>
+        <button class="add" type="submit" id="authSubmit">Giriş yap</button>
+      </form>
+    </div>
+    <p class="hint" id="authHint">Kullanıcı adı: 3–30 karakter, harf, rakam, nokta, alt çizgi veya tire.<br>Şifre en az 6 karakter.</p>
+  </div>
+
+  <!-- Liste -->
+  <div id="appView" hidden>
+    <div class="card">
+      <form class="row" id="form">
+        <input type="text" id="input" placeholder="Yeni görev ekle..." autocomplete="off">
+        <button class="add" type="submit">Ekle</button>
+      </form>
+      <div class="filters">
+        <button data-f="all" class="active">Tümü</button>
+        <button data-f="active">Aktif</button>
+        <button data-f="done">Tamamlanan</button>
+      </div>
+      <div class="error" id="error" hidden></div>
+      <ul id="list"></ul>
+      <div class="footer">
+        <span id="count"></span>
+        <button id="clear">Tamamlananları sil</button>
+      </div>
+    </div>
+    <p class="hint">Düzenlemek için göreve çift tıkla.</p>
+  </div>
 </div>
 
 <script>
   // --- Supabase ayarları ---
   const SUPABASE_URL = "https://clkpmhggxktoiajvbigm.supabase.co";
   const SUPABASE_KEY = "sb_publishable_Wyforu3-zsjxuhgnM8pZxA_gAZZdH0y";
-  const API = SUPABASE_URL + "/rest/v1/todos";
+  // Kullanıcı adları Supabase'de bu iç alan adıyla e-posta biçiminde tutulur
+  const USER_DOMAIN = "users.todo.local";
+
+  const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
   let todos = [];
   let filter = "all";
   let loading = true;
+  let mode = "login";
+  let currentUserId = null;
 
   const $ = (s) => document.querySelector(s);
   const list = $("#list"), input = $("#input");
@@ -111,66 +173,128 @@
     weekday: "long", day: "numeric", month: "long", year: "numeric"
   });
 
-  async function api(method, query = "", body) {
-    const res = await fetch(API + query, {
-      method,
-      headers: { apikey: SUPABASE_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
-      body: body ? JSON.stringify(body) : undefined
-    });
-    if (!res.ok) throw new Error(res.status + " " + (await res.text()));
-    return res.status === 204 ? null : res.json();
+  // ---------- Giriş / kayıt ----------
+  function normalizeUsername(v) {
+    return v.trim().toLocaleLowerCase("tr-TR")
+      .replace(/ı/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u")
+      .replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c");
+  }
+  const toEmail = (u) => `${u}@${USER_DOMAIN}`;
+  const fromEmail = (e) => (e || "").split("@")[0];
+
+  function setMode(m) {
+    mode = m;
+    document.querySelectorAll(".tabs button").forEach(b => b.classList.toggle("active", b.dataset.mode === m));
+    $("#password2Wrap").hidden = m !== "signup";
+    $("#password2").required = m === "signup";
+    $("#password").autocomplete = m === "signup" ? "new-password" : "current-password";
+    $("#authSubmit").textContent = m === "signup" ? "Kayıt ol" : "Giriş yap";
+    authError("");
+  }
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => setMode(b.dataset.mode));
+
+  function authError(msg) {
+    $("#authError").textContent = msg;
+    $("#authError").hidden = !msg;
   }
 
+  function translateAuthError(err) {
+    const m = (err && err.message || "").toLowerCase();
+    if (m.includes("invalid login")) return "Kullanıcı adı veya şifre hatalı.";
+    if (m.includes("already registered") || m.includes("already exists")) return "Bu kullanıcı adı alınmış.";
+    if (m.includes("password")) return "Şifre en az 6 karakter olmalı.";
+    if (m.includes("rate limit") || m.includes("too many")) return "Çok fazla deneme yapıldı. Biraz bekleyip tekrar dene.";
+    if (m.includes("fetch") || m.includes("network")) return "Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.";
+    return "Bir hata oluştu: " + (err && err.message || "bilinmeyen hata");
+  }
+
+  $("#authForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const username = normalizeUsername($("#username").value);
+    const password = $("#password").value;
+
+    if (!/^[a-z0-9._-]{3,30}$/.test(username))
+      return authError("Kullanıcı adı 3–30 karakter olmalı ve sadece harf, rakam, nokta, alt çizgi veya tire içermeli.");
+    if (password.length < 6) return authError("Şifre en az 6 karakter olmalı.");
+    if (mode === "signup" && password !== $("#password2").value) return authError("Şifreler aynı değil.");
+
+    authError("");
+    const btn = $("#authSubmit");
+    btn.disabled = true;
+    try {
+      const creds = { email: toEmail(username), password };
+      const { data, error } = mode === "signup"
+        ? await sb.auth.signUp(creds)
+        : await sb.auth.signInWithPassword(creds);
+      if (error) throw error;
+      if (mode === "signup" && !data.session) throw new Error("Kayıt tamamlanamadı.");
+      $("#password").value = $("#password2").value = "";
+    } catch (err) {
+      authError(translateAuthError(err));
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  $("#logout").onclick = () => sb.auth.signOut();
+
+  function showView(session) {
+    const loggedIn = !!session;
+    $("#authView").hidden = loggedIn;
+    $("#appView").hidden = !loggedIn;
+    $("#userBox").hidden = !loggedIn;
+
+    const newId = loggedIn ? session.user.id : null;
+    if (newId === currentUserId) return;
+    currentUserId = newId;
+
+    if (loggedIn) {
+      $("#userName").textContent = fromEmail(session.user.email);
+      todos = []; loading = true; render();
+      refresh();
+      input.focus();
+    } else {
+      todos = [];
+      $("#username").focus();
+    }
+  }
+
+  sb.auth.onAuthStateChange((_event, session) => showView(session));
+
+  // ---------- Görevler ----------
   function showError(err) {
     console.error(err);
-    const el = $("#error");
-    el.textContent = "Supabase'e ulaşılamadı. İnternet bağlantını kontrol et.";
-    el.hidden = false;
+    $("#error").textContent = "Supabase'e ulaşılamadı. İnternet bağlantını kontrol et.";
+    $("#error").hidden = false;
   }
   function clearError() { $("#error").hidden = true; }
 
   async function refresh() {
-    try {
-      todos = await api("GET", "?select=*&order=created_at.desc");
-      clearError();
-    } catch (e) { showError(e); }
+    const { data, error } = await sb.from("todos").select("*").order("created_at", { ascending: false });
+    if (error) showError(error); else { todos = data; clearError(); }
     loading = false;
     render();
   }
 
-  // Eski sürümden kalan tarayıcı verilerini bir kerelik Supabase'e taşı
-  async function migrateLocal() {
-    let old = [];
-    try { old = JSON.parse(localStorage.getItem("todo-items")) || []; } catch {}
-    if (!old.length) return;
-    try {
-      await api("POST", "", old.reverse().map(t => ({ text: t.text, done: !!t.done })));
-      localStorage.removeItem("todo-items");
-    } catch (e) { showError(e); }
-  }
-
   async function addTodo(text) {
-    try {
-      const [row] = await api("POST", "", { text });
-      todos.unshift(row);
-      clearError();
-    } catch (e) { showError(e); }
+    const { data, error } = await sb.from("todos").insert({ text }).select().single();
+    if (error) showError(error); else { todos.unshift(data); clearError(); }
     render();
   }
 
   async function updateTodo(t, fields) {
     Object.assign(t, fields);
     render();
-    try { await api("PATCH", "?id=eq." + t.id, fields); clearError(); }
-    catch (e) { showError(e); refresh(); }
+    const { error } = await sb.from("todos").update(fields).eq("id", t.id);
+    if (error) { showError(error); refresh(); } else clearError();
   }
 
   async function deleteTodos(ids) {
     if (!ids.length) return;
     todos = todos.filter(x => !ids.includes(x.id));
     render();
-    try { await api("DELETE", "?id=in.(" + ids.join(",") + ")"); clearError(); }
-    catch (e) { showError(e); refresh(); }
+    const { error } = await sb.from("todos").delete().in("id", ids);
+    if (error) { showError(error); refresh(); } else clearError();
   }
 
   function render() {
@@ -256,9 +380,6 @@
   });
 
   $("#clear").onclick = () => deleteTodos(todos.filter(t => t.done).map(t => t.id));
-
-  render();
-  migrateLocal().then(refresh);
 </script>
 </body>
 </html>
