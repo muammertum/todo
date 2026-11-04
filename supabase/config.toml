@@ -245,9 +245,10 @@ pass = "env(BREVO_SMTP_KEY)"
 admin_email = "env(BREVO_SENDER_EMAIL)"
 sender_name = "Yapılacaklar"
 
-[auth.email.template.confirmation]
-subject = "Yapılacaklar onay kodun: {{ .Token }}"
-content_path = "./supabase/templates/confirmation.html"
+# (Brevo SMTP kapalıyken özel şablon kullanılamaz)
+# [auth.email.template.confirmation]
+# subject = "Yapılacaklar onay kodun: {{ .Token }}"
+# content_path = "./supabase/templates/confirmation.html"
 
 # Uncomment to customize email template
 # [auth.email.template.invite]
