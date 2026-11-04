@@ -237,7 +237,7 @@ otp_expiry = 3600
 # Onay e-postaları Brevo SMTP üzerinden gider.
 # Değerler supabase/.env dosyasından okunur (bu dosya GitHub'a gönderilmez).
 [auth.email.smtp]
-enabled = true
+enabled = false
 host = "smtp-relay.brevo.com"
 port = 587
 user = "env(BREVO_SMTP_LOGIN)"
