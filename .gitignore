@@ -1,2 +1,3 @@
 .supabase-db-password.txt
 supabase/.temp/
+supabase/.env

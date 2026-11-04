@@ -33,7 +33,13 @@
   .link:hover { text-decoration: underline; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
   form.row { display: flex; gap: 8px; }
-  input[type=text], input[type=password] {
+  .info { font-size: 17px; line-height: 1.5; margin: 0; }
+  .code { text-align: center; font-size: 30px !important; letter-spacing: 10px; font-weight: 600; }
+  .ok { color: #16a34a; font-size: 16px; }
+  .row-links { display: flex; justify-content: space-between; }
+  .row-links .link { margin: 0; }
+  .link:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+  input[type=text], input[type=password], input[type=email] {
     flex: 1; width: 100%; padding: 12px 14px; font-size: 20px; border-radius: 8px;
     border: 1px solid var(--border); background: var(--bg); color: var(--text); outline: none;
   }
@@ -112,8 +118,8 @@
         <button type="button" data-mode="signup">Kayıt ol</button>
       </div>
       <form id="authForm">
-        <label>Kullanıcı adı
-          <input type="text" id="username" autocomplete="username" required>
+        <label>E-posta
+          <input type="email" id="email" autocomplete="email" required>
         </label>
         <label>Şifre
           <input type="password" id="password" autocomplete="current-password" required minlength="6">
@@ -125,7 +131,27 @@
         <button class="add" type="submit" id="authSubmit">Giriş yap</button>
       </form>
     </div>
-    <p class="hint" id="authHint">Kullanıcı adı: 3–30 karakter, harf, rakam, nokta, alt çizgi veya tire.<br>Şifre en az 6 karakter.</p>
+    <p class="hint">Şifre en az 6 karakter olmalı.</p>
+  </div>
+
+  <!-- Onay kodu -->
+  <div id="verifyView" hidden>
+    <div class="card auth">
+      <form id="verifyForm">
+        <p class="info"><strong id="verifyEmail"></strong> adresine 6 haneli bir onay kodu gönderdik. Kodu aşağıya yaz.</p>
+        <label>Onay kodu
+          <input type="text" id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required class="code">
+        </label>
+        <div class="error" id="verifyError" hidden></div>
+        <div class="ok" id="verifyOk" hidden></div>
+        <button class="add" type="submit" id="verifySubmit">Onayla</button>
+        <div class="row-links">
+          <button type="button" class="link" id="resend">Kodu tekrar gönder</button>
+          <button type="button" class="link" id="backToLogin">Geri dön</button>
+        </div>
+      </form>
+    </div>
+    <p class="hint">E-posta gelmediyse Spam / Gereksiz klasörüne de bak.</p>
   </div>
 
   <!-- Liste -->
@@ -155,8 +181,6 @@
   // --- Supabase ayarları ---
   const SUPABASE_URL = "https://clkpmhggxktoiajvbigm.supabase.co";
   const SUPABASE_KEY = "sb_publishable_Wyforu3-zsjxuhgnM8pZxA_gAZZdH0y";
-  // Kullanıcı adları Supabase'de bu iç alan adıyla e-posta biçiminde tutulur
-  const USER_DOMAIN = "users.todo.local";
 
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -174,13 +198,7 @@
   });
 
   // ---------- Giriş / kayıt ----------
-  function normalizeUsername(v) {
-    return v.trim().toLocaleLowerCase("tr-TR")
-      .replace(/ı/g, "i").replace(/ğ/g, "g").replace(/ü/g, "u")
-      .replace(/ş/g, "s").replace(/ö/g, "o").replace(/ç/g, "c");
-  }
-  const toEmail = (u) => `${u}@${USER_DOMAIN}`;
-  const fromEmail = (e) => (e || "").split("@")[0];
+  let pendingEmail = null;   // onay kodu beklenen e-posta
 
   function setMode(m) {
     mode = m;
@@ -200,21 +218,24 @@
 
   function translateAuthError(err) {
     const m = (err && err.message || "").toLowerCase();
-    if (m.includes("invalid login")) return "Kullanıcı adı veya şifre hatalı.";
-    if (m.includes("already registered") || m.includes("already exists")) return "Bu kullanıcı adı alınmış.";
+    if (m.includes("invalid login")) return "E-posta veya şifre hatalı.";
+    if (m.includes("already registered") || m.includes("already exists")) return "Bu e-posta ile zaten bir hesap var. Giriş yapmayı dene.";
+    if (m.includes("expired") || m.includes("invalid") && m.includes("otp") || m.includes("token"))
+      return "Kod hatalı ya da süresi dolmuş. Tekrar dene veya yeni kod iste.";
+    if (m.includes("email") && m.includes("invalid")) return "Geçerli bir e-posta adresi yaz.";
+    if (m.includes("sending") || m.includes("smtp")) return "Onay e-postası gönderilemedi. Biraz sonra tekrar dene.";
+    if (m.includes("security purposes") || m.includes("rate limit") || m.includes("too many"))
+      return "Çok sık deneme yapıldı. Bir dakika bekleyip tekrar dene.";
     if (m.includes("password")) return "Şifre en az 6 karakter olmalı.";
-    if (m.includes("rate limit") || m.includes("too many")) return "Çok fazla deneme yapıldı. Biraz bekleyip tekrar dene.";
     if (m.includes("fetch") || m.includes("network")) return "Sunucuya ulaşılamadı. İnternet bağlantını kontrol et.";
     return "Bir hata oluştu: " + (err && err.message || "bilinmeyen hata");
   }
 
   $("#authForm").onsubmit = async (e) => {
     e.preventDefault();
-    const username = normalizeUsername($("#username").value);
+    const email = $("#email").value.trim().toLowerCase();
     const password = $("#password").value;
 
-    if (!/^[a-z0-9._-]{3,30}$/.test(username))
-      return authError("Kullanıcı adı 3–30 karakter olmalı ve sadece harf, rakam, nokta, alt çizgi veya tire içermeli.");
     if (password.length < 6) return authError("Şifre en az 6 karakter olmalı.");
     if (mode === "signup" && password !== $("#password2").value) return authError("Şifreler aynı değil.");
 
@@ -222,12 +243,24 @@
     const btn = $("#authSubmit");
     btn.disabled = true;
     try {
-      const creds = { email: toEmail(username), password };
-      const { data, error } = mode === "signup"
-        ? await sb.auth.signUp(creds)
-        : await sb.auth.signInWithPassword(creds);
-      if (error) throw error;
-      if (mode === "signup" && !data.session) throw new Error("Kayıt tamamlanamadı.");
+      if (mode === "signup") {
+        const { data, error } = await sb.auth.signUp({ email, password });
+        if (error) throw error;
+        // Supabase, kayıtlı bir e-posta için hata vermek yerine boş "identities" döner
+        if (data.user && data.user.identities && data.user.identities.length === 0)
+          throw new Error("User already registered");
+        if (!data.session) startVerify(email);
+      } else {
+        const { error } = await sb.auth.signInWithPassword({ email, password });
+        if (error) {
+          if ((error.message || "").toLowerCase().includes("not confirmed")) {
+            await sb.auth.resend({ type: "signup", email });
+            startVerify(email);
+            return;
+          }
+          throw error;
+        }
+      }
       $("#password").value = $("#password2").value = "";
     } catch (err) {
       authError(translateAuthError(err));
@@ -236,11 +269,56 @@
     }
   };
 
+  // ---------- Onay kodu ----------
+  function startVerify(email) {
+    pendingEmail = email;
+    $("#verifyEmail").textContent = email;
+    $("#code").value = "";
+    verifyMsg("", "");
+    showView(null);
+    $("#code").focus();
+  }
+
+  function verifyMsg(err, ok) {
+    $("#verifyError").textContent = err; $("#verifyError").hidden = !err;
+    $("#verifyOk").textContent = ok; $("#verifyOk").hidden = !ok;
+  }
+
+  $("#verifyForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const token = $("#code").value.replace(/\D/g, "");
+    if (token.length !== 6) return verifyMsg("Kod 6 haneli olmalı.", "");
+    const btn = $("#verifySubmit");
+    btn.disabled = true;
+    const { error } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: "signup" });
+    btn.disabled = false;
+    if (error) return verifyMsg(translateAuthError(error), "");
+    pendingEmail = null;
+    $("#password").value = $("#password2").value = "";
+    // Oturum açıldı; onAuthStateChange listeyi gösterir
+  };
+
+  $("#resend").onclick = async () => {
+    const btn = $("#resend");
+    btn.disabled = true;
+    const { error } = await sb.auth.resend({ type: "signup", email: pendingEmail });
+    if (error) verifyMsg(translateAuthError(error), "");
+    else verifyMsg("", "Yeni kod gönderildi.");
+    setTimeout(() => btn.disabled = false, 60000);
+  };
+
+  $("#backToLogin").onclick = () => {
+    pendingEmail = null;
+    setMode("login");
+    showView(null);
+  };
+
   $("#logout").onclick = () => sb.auth.signOut();
 
   function showView(session) {
     const loggedIn = !!session;
-    $("#authView").hidden = loggedIn;
+    $("#authView").hidden = loggedIn || !!pendingEmail;
+    $("#verifyView").hidden = loggedIn || !pendingEmail;
     $("#appView").hidden = !loggedIn;
     $("#userBox").hidden = !loggedIn;
 
@@ -249,13 +327,13 @@
     currentUserId = newId;
 
     if (loggedIn) {
-      $("#userName").textContent = fromEmail(session.user.email);
+      $("#userName").textContent = session.user.email;
       todos = []; loading = true; render();
       refresh();
       input.focus();
     } else {
       todos = [];
-      $("#username").focus();
+      if (!pendingEmail) $("#email").focus();
     }
   }
 
